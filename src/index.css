@@ -1,0 +1,563 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap');
+
+:root {
+  /* Color Palette (Sleek Space & Pitch Green Theme) */
+  --bg-dark: hsl(222, 28%, 7%);
+  --bg-primary: hsl(222, 25%, 10%);
+  --bg-secondary: hsl(222, 20%, 15%);
+  --bg-card: hsl(222, 18%, 18%);
+  --bg-panel: hsl(222, 15%, 22%);
+  
+  --accent-green: hsl(142, 72%, 46%); /* Pitch / Lawn Green */
+  --accent-green-glow: hsla(142, 72%, 46%, 0.35);
+  --accent-gold: hsl(45, 95%, 50%); /* Trophy Gold */
+  --accent-gold-glow: hsla(45, 95%, 50%, 0.3);
+  --accent-blue: hsl(200, 95%, 50%); /* Energy Blue */
+  --accent-red: hsl(354, 85%, 53%); /* Red Card Red */
+  
+  --text-main: hsl(0, 0%, 96%);
+  --text-muted: hsl(222, 15%, 68%);
+  --text-dark: hsl(222, 30%, 12%);
+  
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-active: hsla(142, 72%, 46%, 0.5);
+  --bg-glass: rgba(13, 20, 37, 0.75);
+  --shadow-main: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  --shadow-green: 0 0 15px var(--accent-green-glow);
+  
+  --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Rajdhani', var(--font-main);
+  
+  --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-main);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Phone Container Frame for Desktops */
+.phone-frame {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (min-width: 480px) {
+  .phone-frame {
+    width: 412px;
+    height: 846px;
+    border-radius: 36px;
+    border: 8px solid hsl(222, 10%, 20%);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Top camera notch simulation */
+  .phone-frame::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 24px;
+    background-color: hsl(222, 10%, 20%);
+    border-radius: 12px;
+    z-index: 1000;
+  }
+}
+
+/* Phone Top Bar */
+.phone-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 24px;
+  background-color: var(--bg-dark);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  height: 38px;
+  z-index: 999;
+}
+
+@media (min-width: 480px) {
+  .phone-top-bar {
+    padding-top: 14px;
+    height: 44px;
+  }
+}
+
+.top-bar-icons {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.icon-battery {
+  width: 20px;
+  height: 10px;
+  border: 1px solid var(--text-muted);
+  border-radius: 2px;
+  position: relative;
+  padding: 1px;
+}
+
+.icon-battery::after {
+  content: '';
+  width: 70%;
+  height: 100%;
+  background-color: var(--accent-green);
+  display: block;
+  border-radius: 1px;
+}
+
+/* App Layout */
+.app-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Screen Content Area */
+.screen-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  padding-bottom: 80px; /* space for tab bar */
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: none;
+}
+
+.screen-content::-webkit-scrollbar {
+  display: none;
+}
+
+/* Glassmorphism Panels */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: var(--shadow-main);
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.glass-panel.clickable:active {
+  transform: scale(0.98);
+  border-color: var(--border-active);
+}
+
+/* Typography & Titles */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.section-title {
+  font-size: 1.25rem;
+  color: var(--text-main);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.badge-gold {
+  color: var(--accent-gold);
+  background-color: var(--accent-gold-glow);
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-green {
+  color: var(--accent-green);
+  background-color: var(--accent-green-glow);
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Custom Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-green), hsl(142, 80%, 38%));
+  color: var(--text-dark);
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-green);
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+}
+
+.btn-primary:active {
+  transform: scale(0.96);
+  opacity: 0.9;
+}
+
+.btn-secondary {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-glass);
+  color: var(--text-main);
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btn-secondary:active {
+  background-color: var(--bg-card);
+  border-color: var(--border-active);
+}
+
+/* Bottom Nav Tab Bar */
+.bottom-nav {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background-color: var(--bg-primary);
+  border-top: 1px solid var(--border-glass);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 100;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  flex: 1;
+  height: 100%;
+  transition: color var(--transition-fast);
+  gap: 4px;
+}
+
+.nav-item.active {
+  color: var(--accent-green);
+}
+
+.nav-icon {
+  font-size: 1.25rem;
+}
+
+/* Grid & Layout Utilities */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.flex-row-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-gap-10 {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* List Items (Roster, Transfers) */
+.list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-glass);
+}
+
+.list-item:last-child {
+  border-bottom: none;
+}
+
+.player-ovr-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+}
+
+.player-ovr-badge.high {
+  background-color: var(--accent-gold-glow);
+  color: var(--accent-gold);
+  border: 1px solid var(--accent-gold);
+}
+
+.player-ovr-badge.med {
+  background-color: var(--accent-green-glow);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green);
+}
+
+.player-ovr-badge.low {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px solid var(--border-glass);
+}
+
+.player-position-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  text-transform: uppercase;
+}
+
+/* Visual Football Pitch (Taktiktafel) */
+.pitch-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 0.75;
+  background: linear-gradient(to bottom, #1e4d2b, #153a1f);
+  border: 4px solid var(--border-glass);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+}
+
+.pitch-line {
+  position: absolute;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+.pitch-center-circle {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 25%;
+  height: 18.75%;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+.pitch-center-line {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+.pitch-penalty-box-top {
+  top: 0;
+  left: 20%;
+  right: 20%;
+  height: 18%;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+  border-left: 2px solid rgba(255, 255, 255, 0.2);
+  border-right: 2px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+.pitch-penalty-box-bottom {
+  bottom: 0;
+  left: 20%;
+  right: 20%;
+  height: 18%;
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  border-left: 2px solid rgba(255, 255, 255, 0.2);
+  border-right: 2px solid rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+/* Pitch Players Positioning */
+.pitch-player {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 5;
+  cursor: pointer;
+  transition: top var(--transition-normal), left var(--transition-normal);
+}
+
+.pitch-player-shirt {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-green), #14532d);
+  border: 2px solid var(--text-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.75rem;
+  color: var(--text-dark);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.pitch-player.user-shirt .pitch-player-shirt {
+  background: radial-gradient(circle, var(--accent-gold), #78350f);
+}
+
+.pitch-player-name {
+  margin-top: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-main);
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 65px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 1px black;
+}
+
+/* Live Simulation Animation Glows */
+@keyframes pulse-green {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+.simulating-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--accent-green);
+  animation: pulse-green 1.5s infinite;
+}
+
+/* Modal and Drawer styling */
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end; /* Mobile drawer style */
+  justify-content: center;
+  z-index: 500;
+}
+
+.modal-drawer {
+  background-color: var(--bg-secondary);
+  border-top-left-radius: 28px;
+  border-top-right-radius: 28px;
+  border-top: 1px solid var(--border-glass);
+  width: 100%;
+  max-height: 80%;
+  overflow-y: auto;
+  padding: 24px;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  animation: slide-up 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Scrollable tabs helper */
+.tabs-container {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs-container::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab-pill.active {
+  background-color: var(--accent-green-glow);
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+/* Capacitor Native Overrides */
+.capacitor-app .phone-frame {
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.capacitor-app .phone-frame::before {
+  display: none !important;
+}
+
+.capacitor-app .phone-top-bar {
+  display: none !important;
+}
+
+.capacitor-app .app-container {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
