@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameState, Team, Player, Match, MatchEvent, TeamTactics } from '../types';
-import { simulateMinute, calculateTeamStrengths } from '../utils/gameEngine';
+import { simulateSubstrateMatch } from '../utils/substrateEngine';
 
 interface MatchViewProps {
   matchId: string;
@@ -46,13 +46,23 @@ export default function MatchView({
   const [selectedSubSlot, setSelectedSubSlot] = useState<number | null>(null);
   const [injuryAlertPlayer, setInjuryAlertPlayer] = useState<Player | null>(null);
 
+  const [preSimulatedMatch, setPreSimulatedMatch] = useState<Match | null>(null);
+
   const tickerEndRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<any>(null);
+
+  // Initialize the deterministic substrate match simulation
+  useEffect(() => {
+    const simulated = simulateSubstrateMatch(localHomeTeam, localAwayTeam, match.stage, match.date, match.dayIndex);
+    setPreSimulatedMatch(simulated);
+  }, []);
 
   // Auto-scroll ticker to bottom when new events arrive
   useEffect(() => {
     tickerEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [events]);
+
+  const processedMinutesRef = useRef<Set<number>>(new Set());
 
   // Simulation timer loop
   useEffect(() => {
@@ -60,7 +70,9 @@ export default function MatchView({
       intervalRef.current = setInterval(() => {
         setMinute(prev => {
           const nextMin = prev + 1;
-          runNextMinute(nextMin);
+          if (nextMin >= 90) {
+            setIsPlaying(false);
+          }
           return nextMin;
         });
       }, simSpeed);
@@ -71,66 +83,23 @@ export default function MatchView({
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, minute, simSpeed, localHomeTeam, localAwayTeam, redCardedIds]);
+  }, [isPlaying, simSpeed]);
 
-  const runNextMinute = (currMin: number) => {
-    const { event, homeScoreDelta, awayScoreDelta, newRedCardId, newInjuryId } = simulateMinute(
-      currMin,
-      localHomeTeam,
-      localAwayTeam,
+  const reSimulateFromCurrentMinute = (updatedHome: Team, updatedAway: Team, currentEventsList: MatchEvent[]) => {
+    const nextMin = minute + 1;
+    const reSimulated = simulateSubstrateMatch(
+      updatedHome,
+      updatedAway,
+      match.stage,
+      match.date,
+      match.dayIndex,
+      nextMin,
       homeScore,
       awayScore,
+      currentEventsList,
       redCardedIds
     );
-
-    // Apply score changes
-    if (homeScoreDelta > 0) setHomeScore(s => s + homeScoreDelta);
-    if (awayScoreDelta > 0) setAwayScore(s => s + awayScoreDelta);
-
-    let updatedRedCards = [...redCardedIds];
-    if (newRedCardId) {
-      updatedRedCards.push(newRedCardId);
-      setRedCardedIds(updatedRedCards);
-    }
-
-    // Handle new events
-    if (event) {
-      setEvents(prev => [...prev, event]);
-
-      // If match is forfeited/aborted
-      if (event.description.includes("Abbruch!")) {
-        setIsPlaying(false);
-        setMinute(90);
-        return;
-      }
-    }
-
-    // Handle injuries: pause game if user team player is injured
-    if (newInjuryId) {
-      const isUserInjured = isUserHome 
-        ? localHomeTeam.players.some(p => p.id === newInjuryId)
-        : localAwayTeam.players.some(p => p.id === newInjuryId);
-
-      const injuredPlayer = isUserHome
-        ? localHomeTeam.players.find(p => p.id === newInjuryId)
-        : localAwayTeam.players.find(p => p.id === newInjuryId);
-
-      if (isUserInjured && injuredPlayer) {
-        setIsPlaying(false); // PAUSE SIM
-        setInjuryAlertPlayer(injuredPlayer);
-        
-        // Mark player profile locally as injured (injuryWeeks = 2)
-        updatePlayerInjuryStatus(injuredPlayer.id, 2);
-      } else {
-        // AI player gets injured - AI substitutes automatically in background
-        handleAISubstitution(newInjuryId, currMin);
-      }
-    }
-
-    // Handle end of match
-    if (currMin >= 90) {
-      setIsPlaying(false);
-    }
+    setPreSimulatedMatch(reSimulated);
   };
 
   const updatePlayerInjuryStatus = (playerId: string, weeks: number) => {
@@ -190,79 +159,96 @@ export default function MatchView({
     });
   };
 
-  const handleInstantSimulation = () => {
-    setIsPlaying(false);
-    
-    let currentMin = minute;
-    let currHomeScore = homeScore;
-    let currAwayScore = awayScore;
-    let currRedCards = [...redCardedIds];
-    let currEvents = [...events];
-    
-    const homeTeamCopy: Team = JSON.parse(JSON.stringify(localHomeTeam));
-    const awayTeamCopy: Team = JSON.parse(JSON.stringify(localAwayTeam));
-
-    // Run loop in memory
-    while (currentMin < 90) {
-      currentMin++;
-      
-      const { event, homeScoreDelta, awayScoreDelta, newRedCardId, newInjuryId } = simulateMinute(
-        currentMin,
-        homeTeamCopy,
-        awayTeamCopy,
-        currHomeScore,
-        currAwayScore,
-        currRedCards
-      );
-
-      currHomeScore += homeScoreDelta;
-      currAwayScore += awayScoreDelta;
-
-      if (newRedCardId) {
-        currRedCards.push(newRedCardId);
+  // Process events when minute changes
+  useEffect(() => {
+    if (minute > 0 && minute <= 90 && preSimulatedMatch) {
+      if (processedMinutesRef.current.has(minute)) {
+        return;
       }
+      processedMinutesRef.current.add(minute);
 
-      if (event) {
-        currEvents.push(event);
-        if (event.description.includes("Abbruch!")) {
-          break;
-        }
-      }
+      // Find all events for the current minute
+      const minEvents = preSimulatedMatch.events.filter(e => e.minute === minute);
 
-      if (newInjuryId) {
-        // Just resolve in background
-        const team = homeTeamCopy.players.some(p => p.id === newInjuryId) ? homeTeamCopy : awayTeamCopy;
-        const injuredPlayer = team.players.find(x => x.id === newInjuryId);
-        if (injuredPlayer) {
-          injuredPlayer.injuryWeeks = 2;
-        }
-        const backup = team.players.find(p => 
-          p.position === injuredPlayer?.position && 
-          !team.lineup.includes(p.id) && 
-          p.injuryWeeks === 0 && 
-          !currRedCards.includes(p.id)
-        );
-        if (backup) {
-          const idx = team.lineup.indexOf(newInjuryId);
-          if (idx !== -1) {
-            team.lineup[idx] = backup.id;
+      // Update scores and active cards/injuries based on minEvents
+      minEvents.forEach(e => {
+        if (e.type === 'goal') {
+          if (e.teamId === localHomeTeam.id) {
+            setHomeScore(s => s + 1);
+          } else if (e.teamId === localAwayTeam.id) {
+            setAwayScore(s => s + 1);
           }
-          currEvents.push({
-            minute: currentMin,
-            type: 'text',
-            description: `Wechsel bei ${team.name}: ${backup.name} kommt für den verletzten ${injuredPlayer?.name}.`
-          });
         }
+
+        if (e.type === 'red') {
+          const homePlayer = localHomeTeam.players.find(p => p.name === e.playerName);
+          if (homePlayer) setRedCardedIds(prev => [...prev, homePlayer.id]);
+
+          const awayPlayer = localAwayTeam.players.find(p => p.name === e.playerName);
+          if (awayPlayer) setRedCardedIds(prev => [...prev, awayPlayer.id]);
+        }
+
+        if (e.type === 'injury') {
+          const homePlayer = localHomeTeam.players.find(p => p.name === e.playerName);
+          if (homePlayer) {
+            updatePlayerInjuryStatus(homePlayer.id, 2);
+            const isUserInjured = isUserHome;
+            if (isUserInjured) {
+              setIsPlaying(false);
+              setInjuryAlertPlayer(homePlayer);
+            } else {
+              handleAISubstitution(homePlayer.id, minute);
+            }
+          }
+
+          const awayPlayer = localAwayTeam.players.find(p => p.name === e.playerName);
+          if (awayPlayer) {
+            updatePlayerInjuryStatus(awayPlayer.id, 2);
+            const isUserInjured = !isUserHome;
+            if (isUserInjured) {
+              setIsPlaying(false);
+              setInjuryAlertPlayer(awayPlayer);
+            } else {
+              handleAISubstitution(awayPlayer.id, minute);
+            }
+          }
+        }
+      });
+
+      if (minEvents.length > 0) {
+        setEvents(prev => [...prev, ...minEvents]);
       }
     }
+  }, [minute, preSimulatedMatch, localHomeTeam.id, localAwayTeam.id, isUserHome, redCardedIds]);
+  const handleInstantSimulation = () => {
+    setIsPlaying(false);
+    if (!preSimulatedMatch) return;
+    
+    // Mark all minutes as processed to avoid double processing in useEffect
+    for (let m = 1; m <= 90; m++) {
+      processedMinutesRef.current.add(m);
+    }
+    
+    // Set all remaining events and scores instantly
+    const finalHomeScore = preSimulatedMatch.homeScore ?? homeScore;
+    const finalAwayScore = preSimulatedMatch.awayScore ?? awayScore;
+    
+    // Find all player IDs that got red carded in the pre-simulated match
+    const finalRedCardedIds = [...redCardedIds];
+    preSimulatedMatch.events.forEach(e => {
+      if (e.type === 'red') {
+        const homePlayer = localHomeTeam.players.find(p => p.name === e.playerName);
+        if (homePlayer && !finalRedCardedIds.includes(homePlayer.id)) finalRedCardedIds.push(homePlayer.id);
+        const awayPlayer = localAwayTeam.players.find(p => p.name === e.playerName);
+        if (awayPlayer && !finalRedCardedIds.includes(awayPlayer.id)) finalRedCardedIds.push(awayPlayer.id);
+      }
+    });
 
-    setLocalHomeTeam(homeTeamCopy);
-    setLocalAwayTeam(awayTeamCopy);
     setMinute(90);
-    setHomeScore(currHomeScore);
-    setAwayScore(currAwayScore);
-    setEvents(currEvents);
-    setRedCardedIds(currRedCards);
+    setHomeScore(finalHomeScore);
+    setAwayScore(finalAwayScore);
+    setEvents(preSimulatedMatch.events);
+    setRedCardedIds(finalRedCardedIds);
   };
 
   // Perform User substitution mid-game
@@ -278,17 +264,28 @@ export default function MatchView({
 
     if (outgoingPlayer && incomingPlayer) {
       newLineup[selectedSubSlot] = reservePlayerId;
-      teamSetter(prev => ({
-        ...prev,
+      const updatedTeam = {
+        ...userTeamRef,
         lineup: newLineup
-      }));
+      };
+      
+      // Update team state
+      teamSetter(updatedTeam);
 
       // Log swap event
-      setEvents(prev => [...prev, {
+      const swapEvent: MatchEvent = {
         minute: minute || 1,
         type: 'text',
         description: `Wechsel bei ${userTeamRef.name}: ${incomingPlayer.name} kommt für ${outgoingPlayer.name}.`
-      }]);
+      };
+      const updatedEvents = [...events, swapEvent];
+      setEvents(updatedEvents);
+
+      reSimulateFromCurrentMinute(
+        isUserHome ? updatedTeam : localHomeTeam,
+        isUserHome ? localHomeTeam : updatedTeam,
+        updatedEvents
+      );
     }
 
     setSelectedSubSlot(null);
@@ -297,19 +294,28 @@ export default function MatchView({
 
   const handleUpdateUserTactics = (style: TeamTactics['style']) => {
     const teamSetter = isUserHome ? setLocalHomeTeam : setLocalAwayTeam;
-    teamSetter(prev => ({
-      ...prev,
+    const updatedTeam = {
+      ...activeUserTeam,
       tactics: {
-        ...prev.tactics,
+        ...activeUserTeam.tactics,
         style
       }
-    }));
+    };
+    teamSetter(updatedTeam);
 
-    setEvents(prev => [...prev, {
+    const tacticEvent: MatchEvent = {
       minute: minute || 1,
       type: 'text',
       description: `Trainer taktische Anpassung: ${userTeam.name} stellt auf "${style}" um.`
-    }]);
+    };
+    const updatedEvents = [...events, tacticEvent];
+    setEvents(updatedEvents);
+
+    reSimulateFromCurrentMinute(
+      isUserHome ? updatedTeam : localHomeTeam,
+      isUserHome ? localHomeTeam : updatedTeam,
+      updatedEvents
+    );
   };
 
   const activeUserTeam = isUserHome ? localHomeTeam : localAwayTeam;
@@ -557,7 +563,9 @@ export default function MatchView({
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Fit: {p.fitness}%</span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          Fit: {p.fitness}% | ATP: {Math.round(p.atp ?? 100)}% | Gly: {Math.round(p.glycogen ?? 100)}%
+                        </span>
                         <div className="player-ovr-badge med" style={{ width: '24px', height: '24px', fontSize: '0.75rem' }}>{p.overall}</div>
                       </div>
                     </div>
@@ -596,7 +604,9 @@ export default function MatchView({
                           <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{p.name}</span>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Fit: {p.fitness}%</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                            Fit: {p.fitness}% | ATP: {Math.round(p.atp ?? 100)}% | Gly: {Math.round(p.glycogen ?? 100)}%
+                          </span>
                           <div className="player-ovr-badge med" style={{ width: '24px', height: '24px', fontSize: '0.75rem' }}>{p.overall}</div>
                         </div>
                       </div>

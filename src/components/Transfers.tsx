@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { GameState, Team, Player, PlayerPosition } from '../types';
+import { xorNumber } from '../utils/cryptoLedger';
+import { evaluateKiPlayerCCQ } from '../utils/substrateEngine';
 
 interface TransfersProps {
   gameState: GameState;
@@ -68,21 +70,37 @@ export default function Transfers({
   const submitBid = () => {
     if (!selectedPlayer) return;
 
-    // Minimum acceptable bid is 85% of market value
-    // Max chance at 115%
-    const ratio = bidPrice / selectedPlayer.value;
-
-    if (bidPrice > userTeam.budget) {
+    if (bidPrice > xorNumber(userTeam.budget_xor)) {
       alert('Ihr Budget reicht für dieses Gebot nicht aus!');
       return;
     }
 
+    const ratio = bidPrice / selectedPlayer.value;
+
     if (ratio < 0.85) {
       setNegotiationStep('rejected');
+      return;
+    }
+
+    // Find AI owner team if the player belongs to one
+    const opponentTeamItem = marketPlayers.find(m => m.player.id === selectedPlayer.id);
+    const opponentTeamId = opponentTeamItem?.teamId || undefined;
+    const opponentTeam = opponentTeamId ? gameState.teams.find(t => t.id === opponentTeamId) : undefined;
+
+    if (opponentTeam) {
+      // CCQ strategic matrix evaluation
+      const kiScore = evaluateKiPlayerCCQ(opponentTeam, selectedPlayer);
+      // kiScore generally centers around 0.5 to 1.5. Higher score = team values player more.
+      // We calculate a required bid ratio threshold.
+      const threshold = 0.8 + (kiScore * 0.2);
+      if (ratio >= threshold) {
+        setNegotiationStep('accepted');
+      } else {
+        setNegotiationStep('rejected');
+      }
     } else {
-      // 90% chance to accept if ratio is >= 1.0, 50% if between 0.85 and 1.0
-      const acceptChance = ratio >= 1.0 ? 0.95 : 0.6;
-      if (Math.random() < acceptChance) {
+      // Free agent - accepts easily
+      if (ratio >= 0.90) {
         setNegotiationStep('accepted');
       } else {
         setNegotiationStep('rejected');
@@ -124,7 +142,7 @@ export default function Transfers({
       <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div className="flex-row-between">
           <h1 style={{ fontSize: '1.2rem', color: 'var(--text-main)' }}>🤝 Transfermarkt</h1>
-          <span className="badge-gold">Budget: {(userTeam.budget/1000000).toFixed(1)}M €</span>
+          <span className="badge-gold">Budget: {(xorNumber(userTeam.budget_xor)/1000000).toFixed(1)}M €</span>
         </div>
 
         {/* Tab navigation: Buy / Sell */}

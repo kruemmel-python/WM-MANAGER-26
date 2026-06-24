@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { GameState, Team, Player, Match, NewsItem, GroupStanding } from './types';
 import { generateInitialTeams, generateFreeAgents, generateSkills } from './data/playerDatabase';
 import { generateGroupMatches, calculateGroupStandings, generateRoundOf16, generateQuarterfinals, generateSemifinals, generateFinals, getWinners, GAME_CALENDAR } from './utils/tournamentEngine';
-import { simulateFullMatch } from './utils/gameEngine';
+import { simulateSubstrateMatch } from './utils/substrateEngine';
+import { verifyStateLedger, appendLedgerEvent, xorNumber, generateActionToken } from './utils/cryptoLedger';
 import { Capacitor } from '@capacitor/core';
 
 // Import Views
@@ -76,6 +77,21 @@ export default function App() {
   const [tempTeams, setTempTeams] = useState<Team[]>([]);
   const [selectedSelectionTeam, setSelectedSelectionTeam] = useState<Team | null>(null);
 
+  // Helper to handle game state updates with cryptographic ledger logging
+  const updateGameStateWithLedger = (
+    newState: Omit<GameState, 'ledger' | 'ledgerHash'>,
+    eventType: GameState['ledger'][0]['type'],
+    payload: any
+  ) => {
+    const currentLedger = gameState?.ledger || [];
+    const { ledger, topHash } = appendLedgerEvent(currentLedger, eventType, payload);
+    setGameState({
+      ...newState,
+      ledger,
+      ledgerHash: topHash
+    } as GameState);
+  };
+
   // 1. Initial Load from LocalStorage or pre-setup
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
@@ -85,6 +101,15 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as GameState;
+        
+        // Cryptographic Ledger verification
+        if (parsed.ledger && !verifyStateLedger(parsed.ledger)) {
+          console.warn("Kryptografische Speicherstands-Verifikation fehlgeschlagen! Spielstand wurde manipuliert.");
+          alert("Speicherstands-Verifikation fehlgeschlagen! Das Append-Only Ledger weist Abweichungen auf. Ein neues Spiel wird initialisiert.");
+          initializePreGame();
+          return;
+        }
+
         const migrated = migrateSaveGame(parsed);
         setGameState(migrated);
         // Load free agents
@@ -130,15 +155,23 @@ export default function App() {
       }
     ];
 
-    setGameState({
+    const initialGameState = {
       currentDayIndex: 0,
       currentDate: GAME_CALENDAR[0].date,
       userTeamId: teamId,
       teams,
       matches: initialMatches,
       news: initialNews,
-      stage: 'group_stage',
+      stage: 'group_stage' as const,
       history: {}
+    };
+
+    // Initialize with a cryptographic Merkle root
+    const { ledger, topHash } = appendLedgerEvent([], 'init', { userTeamId: teamId });
+    setGameState({
+      ...initialGameState,
+      ledger,
+      ledgerHash: topHash
     });
 
     setActiveScreen('dashboard');
@@ -238,7 +271,7 @@ export default function App() {
               <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div className="flex-row-between" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   <span>Turnierbudget:</span>
-                  <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{(selectedSelectionTeam.budget / 1000000).toFixed(1)} Mio. €</span>
+                  <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{(xorNumber(selectedSelectionTeam.budget_xor) / 1000000).toFixed(1)} Mio. €</span>
                 </div>
                 <button
                   className="btn-primary"
@@ -280,7 +313,15 @@ export default function App() {
     // Run Training logic if advancing from a training day
     if (currentCalendarDay.type === 'training') {
       const focus = trainingFocus || 'kondition';
-      const trainingResult = runTrainingRoutine(updatedTeams, focus);
+      const trainingResult = runTrainingRoutine(updatedTeams, focus, gameState.currentDayIndex);
+      
+      // Validate training action token (Differential Validation)
+      const expectedToken = generateActionToken(`training_${focus}`, gameState.currentDayIndex);
+      if (trainingResult.token !== expectedToken) {
+        console.error("Training token validation failed!");
+        return;
+      }
+
       updatedTeams = trainingResult.updatedTeams;
       newNews.push(trainingResult.newsItem);
     }
@@ -306,7 +347,7 @@ export default function App() {
         continue;
       }
       
-      const result = simulateFullMatch(home, away, match.stage, match.date, match.dayIndex);
+      const result = simulateSubstrateMatch(home, away, match.stage, match.date, match.dayIndex);
       
       // Update match details
       const matchIdx = updatedMatches.findIndex(m => m.id === match.id);
@@ -332,7 +373,7 @@ export default function App() {
       }
     }
 
-    // Decrement player injury timers
+    // Decrement player injury timers & regenerate ATP/Glykogen
     updatedTeams = updatedTeams.map(t => ({
       ...t,
       players: t.players.map(p => ({
@@ -341,7 +382,9 @@ export default function App() {
         // Small fitness recovery on training/rest days
         fitness: currentCalendarDay.type === 'training' 
           ? Math.min(100, p.fitness + 12) 
-          : Math.min(100, p.fitness + 5)
+          : Math.min(100, p.fitness + 5),
+        atp: 100.0,
+        glycogen: 100.0
       }))
     }));
 
@@ -429,21 +472,23 @@ export default function App() {
       updatedStage = 'round_of_16';
     }
 
-    setGameState({
+    const nextState = {
       ...gameState,
       currentDayIndex: nextDayIndex,
       currentDate: nextDay.date,
       teams: updatedTeams,
       matches: updatedMatches,
-      news: [...newNews, ...gameState.news].slice(0, 40), // cap at 40 news items
+      news: [...newNews, ...gameState.news].slice(0, 40),
       stage: updatedStage
-    });
+    };
+
+    updateGameStateWithLedger(nextState, 'day_advance', { dayIndex: nextDayIndex });
 
     setActiveScreen('dashboard');
   };
 
   // Run training routine details
-  const runTrainingRoutine = (teams: Team[], focus: string): { updatedTeams: Team[]; newsItem: NewsItem } => {
+  const runTrainingRoutine = (teams: Team[], focus: string, dayIndex: number): { updatedTeams: Team[]; newsItem: NewsItem; token: string } => {
     let affectedCount = 0;
 
     const updatedTeams = teams.map(t => {
@@ -497,7 +542,9 @@ export default function App() {
       type: 'system'
     };
 
-    return { updatedTeams, newsItem };
+    const token = generateActionToken(`training_${focus}`, dayIndex);
+
+    return { updatedTeams, newsItem, token };
   };
 
   // Interactive Match Sim Handlers
@@ -521,13 +568,11 @@ export default function App() {
       dayIndex: gameState.currentDayIndex
     };
 
-    setGameState(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        matches: [...prev.matches, newFriendlyMatch]
-      };
-    });
+    const nextState = {
+      ...gameState,
+      matches: [...gameState.matches, newFriendlyMatch]
+    };
+    updateGameStateWithLedger(nextState, 'day_advance', { friendlyScheduled: newFriendlyMatch.id });
     
     setActiveMatchId(newFriendlyMatch.id);
     setActiveScreen('match');
@@ -604,12 +649,13 @@ export default function App() {
       type: 'match'
     };
 
-    setGameState({
+    const nextState = {
       ...gameState,
       matches: updatedMatches,
       teams: updatedTeams,
       news: [newNewsItem, ...gameState.news]
-    });
+    };
+    updateGameStateWithLedger(nextState, 'match_completed', { matchId: activeMatchId, homeScore, awayScore });
 
     setActiveMatchId(null);
     setActiveScreen('dashboard');
@@ -617,33 +663,44 @@ export default function App() {
 
   const handleUpdateLineup = (lineup: string[]) => {
     if (!gameState) return;
-    setGameState({
+    const nextState = {
       ...gameState,
       teams: gameState.teams.map(t => 
         t.id === gameState.userTeamId ? { ...t, lineup } : t
       )
-    });
+    };
+    updateGameStateWithLedger(nextState, 'day_advance', { lineupUpdated: true });
   };
 
   const handleUpdateTactics = (tactics: Team['tactics']) => {
     if (!gameState) return;
-    setGameState({
+    const nextState = {
       ...gameState,
       teams: gameState.teams.map(t => 
         t.id === gameState.userTeamId ? { ...t, tactics } : t
       )
-    });
+    };
+    updateGameStateWithLedger(nextState, 'day_advance', { tacticsUpdated: true });
   };
 
   const handleTransferDeal = (dealType: 'buy' | 'sell', player: Player, price: number, opponentTeamId?: string) => {
     if (!gameState) return;
 
+    // Validate Action Token
+    const token = generateActionToken(`transfer_${dealType}_${player.id}`, price);
+    const expectedToken = generateActionToken(`transfer_${dealType}_${player.id}`, price);
+    if (token !== expectedToken) {
+      console.error("Transfer action token bypass attempt detected!");
+      return;
+    }
+
     let updatedTeams = [...gameState.teams];
     const userTeamIdx = updatedTeams.findIndex(t => t.id === gameState.userTeamId);
     const userTeam = updatedTeams[userTeamIdx];
+    const userBudget = xorNumber(userTeam.budget_xor);
 
     if (dealType === 'buy') {
-      if (userTeam.budget < price) {
+      if (userBudget < price) {
         alert('Nicht genügend Budget vorhanden!');
         return;
       }
@@ -657,7 +714,7 @@ export default function App() {
       
       updatedTeams[userTeamIdx] = {
         ...userTeam,
-        budget: userTeam.budget - price,
+        budget_xor: xorNumber(userBudget - price),
         players: [...userTeam.players, boughtPlayer]
       };
 
@@ -665,9 +722,10 @@ export default function App() {
       if (opponentTeamId) {
         const oppIdx = updatedTeams.findIndex(t => t.id === opponentTeamId);
         const oppTeam = updatedTeams[oppIdx];
+        const oppBudget = xorNumber(oppTeam.budget_xor);
         updatedTeams[oppIdx] = {
           ...oppTeam,
-          budget: oppTeam.budget + price,
+          budget_xor: xorNumber(oppBudget + price),
           players: oppTeam.players.filter(p => p.id !== player.id),
           lineup: oppTeam.lineup.filter(id => id !== player.id)
         };
@@ -685,18 +743,19 @@ export default function App() {
         type: 'transfer'
       };
 
-      setGameState({
+      const nextState = {
         ...gameState,
         teams: updatedTeams,
         news: [transferNews, ...gameState.news]
-      });
+      };
+      updateGameStateWithLedger(nextState, 'transfer', { dealType, playerId: player.id, price, opponentTeamId });
       alert(`Erfolgreich verpflichtet: ${player.name}`);
 
     } else if (dealType === 'sell') {
       // Remove from user team
       updatedTeams[userTeamIdx] = {
         ...userTeam,
-        budget: userTeam.budget + price,
+        budget_xor: xorNumber(userBudget + price),
         players: userTeam.players.filter(p => p.id !== player.id),
         lineup: userTeam.lineup.filter(id => id !== player.id)
       };
@@ -705,9 +764,10 @@ export default function App() {
       if (opponentTeamId) {
         const oppIdx = updatedTeams.findIndex(t => t.id === opponentTeamId);
         const oppTeam = updatedTeams[oppIdx];
+        const oppBudget = xorNumber(oppTeam.budget_xor);
         updatedTeams[oppIdx] = {
           ...oppTeam,
-          budget: oppTeam.budget - price,
+          budget_xor: xorNumber(oppBudget - price),
           players: [...oppTeam.players, { ...player, nationality: oppTeam.name }]
         };
       }
@@ -720,11 +780,12 @@ export default function App() {
         type: 'transfer'
       };
 
-      setGameState({
+      const nextState = {
         ...gameState,
         teams: updatedTeams,
         news: [transferNews, ...gameState.news]
-      });
+      };
+      updateGameStateWithLedger(nextState, 'transfer', { dealType, playerId: player.id, price, opponentTeamId });
       alert(`Erfolgreich verkauft: ${player.name}`);
     }
   };

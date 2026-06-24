@@ -27,6 +27,11 @@ export interface Player {
   redCards: number;
   injuryWeeks: number; // 0 = fit
   contractYears: number;
+  
+  // Biomechanical metabolism parameters
+  atp: number;      // 0.0 - 100.0 (explosive anaerobic energy pool)
+  glycogen: number; // 0.0 - 100.0 (medium anaerobic energy pool)
+  aerobic: number;  // 0.0 - 100.0 (aerobic capacity / recovery base)
 }
 
 export type PlayStyle = 'defensiv' | 'konter' | 'ausgeglichen' | 'ballbesitz' | 'offensiv' | 'brechstange';
@@ -47,9 +52,14 @@ export interface Team {
   lineup: string[]; // Player IDs (should contain exactly 11 IDs)
   captainId: string;
   penaltyTakerId: string;
-  budget: number; // in EUR
+  budget_xor: number; // Obfuscated budget (XORed with secret key)
   tactics: TeamTactics;
   isUser: boolean;
+  
+  // KI kognitive Entscheidungsmatrix (4x4)
+  // Zeilen: [Kaderstärke, Liquidität, Fan-Erwartung, Altersschnitt]
+  // Spalten: [Transfer-Aggressivität, Jugendförderung, Defensivausrichtung, Budget-Priorität]
+  ccqMatrix: number[][];
 }
 
 export type MatchStage = 
@@ -100,6 +110,14 @@ export interface NewsItem {
   type: 'transfer' | 'injury' | 'match' | 'tournament' | 'system';
 }
 
+export interface LedgerEvent {
+  id: string;
+  timestamp: number;
+  type: 'init' | 'day_advance' | 'transfer' | 'match_completed';
+  payload: string; // JSON payload of action
+  hash: string;    // SHA-256 hash chaining
+}
+
 export interface GameState {
   currentDayIndex: number; // Index in the game calendar
   currentDate: string;
@@ -113,4 +131,8 @@ export interface GameState {
     secondId?: string;
     thirdId?: string;
   };
+  
+  // Append-Only cryptographic state security ledger
+  ledger: LedgerEvent[];
+  ledgerHash: string;
 }

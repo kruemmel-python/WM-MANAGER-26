@@ -1,4 +1,6 @@
 import { Player, Team, PlayerPosition, PlayerSkills, TeamTactics } from '../types';
+import { xorNumber } from '../utils/cryptoLedger';
+import { Pcg32, generateRandomCCQMatrix } from '../utils/substrateEngine';
 
 // Helper to generate unique IDs
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -366,14 +368,12 @@ const TEAMS_CONFIG: TeamConfig[] = [
   }
 ];
 
-// Fallback pool for teams not fully configured to make up 32 teams.
-// We will generate the remaining 16 teams programmatically using generic configs.
 const REMAINING_TEAMS_DATA = [
   { id: 'SEN', name: 'Senegal', flag: '🇸🇳', group: 'A' as const },
   { id: 'DEN', name: 'Dänemark', flag: '🇩🇰', group: 'B' as const },
   { id: 'MEX', name: 'Mexiko', flag: '🇲🇽', group: 'C' as const },
   { id: 'POL', name: 'Polen', flag: '🇵🇱', group: 'D' as const },
-  { id: 'KOR', name: 'Südkorea', flag: '🇰🇷', group: 'E' as const },
+  { id: 'KOR', name: 'Südkorea', flag: '🇬🇭', group: 'E' as const }, // group E helper mapping
   { id: 'AUS', name: 'Australien', flag: '🇦🇺', group: 'F' as const },
   { id: 'CMR', name: 'Kamerun', flag: '🇨🇲', group: 'G' as const },
   { id: 'CAN', name: 'Kanada', flag: '🇨🇦', group: 'H' as const },
@@ -392,6 +392,7 @@ const GENERIC_LAST_NAMES = ['Silva', 'Jones', 'Smith', 'Müller', 'Hernandez', '
 
 export function generateInitialTeams(): Team[] {
   const result: Team[] = [];
+  const prng = new Pcg32(99n);
 
   // 1. Process explicit configurations (16 teams)
   for (const config of TEAMS_CONFIG) {
@@ -410,11 +411,12 @@ export function generateInitialTeams(): Team[] {
       flag: config.flag,
       players,
       lineup,
-      captainId: lineup[0], // Arbitrary initial captain
+      captainId: lineup[0],
       penaltyTakerId: lineup[1],
-      budget: 60000000, // 60 Million initial budget
+      budget_xor: xorNumber(60000000), // 60 Million obfuscated
       tactics,
-      isUser: false
+      isUser: false,
+      ccqMatrix: generateRandomCCQMatrix(prng)
     });
   }
 
@@ -462,9 +464,10 @@ export function generateInitialTeams(): Team[] {
       lineup,
       captainId: lineup[0],
       penaltyTakerId: lineup[1],
-      budget: 40000000,
+      budget_xor: xorNumber(40000000), // 40 Million obfuscated
       tactics,
-      isUser: false
+      isUser: false,
+      ccqMatrix: generateRandomCCQMatrix(prng)
     });
   }
 
@@ -476,14 +479,6 @@ function generatePlayersForConfig(config: TeamConfig): Player[] {
   const players: Player[] = [];
   const nationality = config.name;
 
-  // Track star indexes
-  let starIndex = 0;
-
-  // We want to generate:
-  // TW (GK): 2 (Need 1 starter, 1 backup)
-  // ABW (DF): 5 (Need 4 starters, 1 backup)
-  // MF: 5 (Need 4 starters, 1 backup)
-  // ANG (FW): 4 (Need 2 starters, 2 backups)
   const positionNeeds: { pos: PlayerPosition; count: number }[] = [
     { pos: 'TW', count: 2 },
     { pos: 'ABW', count: 5 },
@@ -493,8 +488,7 @@ function generatePlayersForConfig(config: TeamConfig): Player[] {
 
   for (const { pos, count } of positionNeeds) {
     for (let i = 0; i < count; i++) {
-      // Check if there is an explicit star for this position
-      const matchingStar = config.stars.find((s, idx) => s.position === pos && !players.some(p => p.name === s.name));
+      const matchingStar = config.stars.find((s) => s.position === pos && !players.some(p => p.name === s.name));
 
       if (matchingStar) {
         const { value, salary } = calculateValueAndSalary(matchingStar.overall, matchingStar.age);
@@ -516,19 +510,18 @@ function generatePlayersForConfig(config: TeamConfig): Player[] {
           yellowCards: 0,
           redCards: 0,
           injuryWeeks: 0,
-          contractYears: 2 + Math.floor(Math.random() * 3)
+          contractYears: 2 + Math.floor(Math.random() * 3),
+          atp: 100.0,
+          glycogen: 100.0,
+          aerobic: matchingStar.overall // physical base rating
         });
       } else {
-        // Generate random player
         const firstName = config.firstNames[Math.floor(Math.random() * config.firstNames.length)];
         const lastName = config.lastNames[Math.floor(Math.random() * config.lastNames.length)];
         const name = `${firstName} ${lastName}`;
 
-        // Ensure name is unique
         const finalName = players.some(p => p.name === name) ? `${firstName} ${lastName} Jr.` : name;
 
-        // Base rating on national team strength
-        // Top tiers have higher averages
         const topTeams = ['GER', 'FRA', 'ARG', 'BRA', 'ENG', 'ESP', 'ITA', 'POR', 'NED'];
         const isTop = topTeams.includes(config.id);
         const baseMin = isTop ? 75 : 68;
@@ -556,7 +549,10 @@ function generatePlayersForConfig(config: TeamConfig): Player[] {
           yellowCards: 0,
           redCards: 0,
           injuryWeeks: 0,
-          contractYears: 1 + Math.floor(Math.random() * 4)
+          contractYears: 1 + Math.floor(Math.random() * 4),
+          atp: 100.0,
+          glycogen: 100.0,
+          aerobic: overall
         });
       }
     }
@@ -565,9 +561,7 @@ function generatePlayersForConfig(config: TeamConfig): Player[] {
   return players;
 }
 
-// Selects the 11 players with highest overall rating that fit a 4-4-2 layout
 function selectDefaultLineup(players: Player[]): string[] {
-  // Sort players in each position by overall
   const getSortedByPos = (pos: PlayerPosition) => 
     players.filter(p => p.position === pos).sort((a, b) => b.overall - a.overall);
 
@@ -578,25 +572,18 @@ function selectDefaultLineup(players: Player[]): string[] {
 
   const lineup: string[] = [];
 
-  // Need 1 GK
   if (gks[0]) lineup.push(gks[0].id);
 
-  // Need 4 DF
   for (let i = 0; i < 4; i++) {
     if (dfs[i]) lineup.push(dfs[i].id);
   }
-
-  // Need 4 MF
   for (let i = 0; i < 4; i++) {
     if (mfs[i]) lineup.push(mfs[i].id);
   }
-
-  // Need 2 FW
   for (let i = 0; i < 2; i++) {
     if (fws[i]) lineup.push(fws[i].id);
   }
 
-  // In case squad is incomplete or weirdly generated
   while (lineup.length < 11 && players.length > lineup.length) {
     const nextPlayer = players.find(p => !lineup.includes(p.id));
     if (nextPlayer) lineup.push(nextPlayer.id);
@@ -613,11 +600,10 @@ export function generateFreeAgents(): Player[] {
 
   for (let i = 0; i < 15; i++) {
     const pos = positions[Math.floor(Math.random() * positions.length)];
-    const overall = 72 + Math.floor(Math.random() * 12); // 72 - 84 rating
-    const age = 30 + Math.floor(Math.random() * 8); // Veterans
+    const overall = 72 + Math.floor(Math.random() * 12);
+    const age = 30 + Math.floor(Math.random() * 8);
     const { value, salary } = calculateValueAndSalary(overall, age);
 
-    // Free agents have reduced value due to no contract
     freeAgents.push({
       id: generateId(),
       name: `${firstNames[i % firstNames.length]} ${lastNames[i % lastNames.length]}`,
@@ -629,14 +615,17 @@ export function generateFreeAgents(): Player[] {
       form: 50,
       morale: 60,
       skills: generateSkills(pos, overall),
-      value: Math.round(value * 0.4), // 60% discount
+      value: Math.round(value * 0.4),
       salary: Math.round(salary * 0.8),
       goals: 0,
       assists: 0,
       yellowCards: 0,
       redCards: 0,
       injuryWeeks: 0,
-      contractYears: 0
+      contractYears: 0,
+      atp: 100.0,
+      glycogen: 100.0,
+      aerobic: overall
     });
   }
 

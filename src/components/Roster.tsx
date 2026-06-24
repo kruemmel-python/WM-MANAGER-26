@@ -192,6 +192,30 @@ export default function Roster({ userTeam, onNavigate }: RosterProps) {
                     </div>
                   ))}
                 </div>
+
+                <h3 style={{ fontSize: '0.85rem', color: 'var(--accent-gold)', marginTop: '14px', marginBottom: '10px' }}>METABOLISMUS</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {[
+                    { label: 'ATP-CP (Explosivkraft) ⚡', val: Math.round(selectedPlayer.atp ?? 100) },
+                    { label: 'Glykogen (Ausdauer) 🔋', val: Math.round(selectedPlayer.glycogen ?? 100) },
+                    { label: 'Aerobe Kapazität (Regeneration) 💨', val: Math.round(selectedPlayer.aerobic ?? selectedPlayer.skills.physical) }
+                  ].map((bio, index) => (
+                    <div key={index}>
+                      <div className="flex-row-between" style={{ fontSize: '0.75rem', marginBottom: '2px' }}>
+                        <span>{bio.label}</span>
+                        <span style={{ fontWeight: 700 }}>{bio.val}%</span>
+                      </div>
+                      <div style={{ height: '6px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ 
+                          width: `${bio.val}%`, 
+                          height: '100%', 
+                          backgroundColor: bio.val >= 75 ? 'var(--accent-green)' : bio.val >= 35 ? 'var(--accent-gold)' : 'var(--accent-red)',
+                          borderRadius: '3px'
+                        }}></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Stats & Actions */}

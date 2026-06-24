@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GameState, Team, Match, NewsItem } from '../types';
 import { GAME_CALENDAR } from '../utils/tournamentEngine';
+import { xorNumber } from '../utils/cryptoLedger';
 
 interface DashboardProps {
   gameState: GameState;
@@ -29,7 +30,7 @@ export default function Dashboard({
   
   const currentCalendarDay = GAME_CALENDAR[gameState.currentDayIndex];
   
-  const formattedBudget = (userTeam.budget / 1000000).toFixed(1);
+  const formattedBudget = (xorNumber(userTeam.budget_xor) / 1000000).toFixed(1);
   const teamOvr = Math.round(
     userTeam.players.reduce((sum, p) => sum + p.overall, 0) / userTeam.players.length
   );

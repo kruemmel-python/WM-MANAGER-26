@@ -1,179 +1,112 @@
 import { generateInitialTeams } from './src/data/playerDatabase';
-import { generateGroupMatches, calculateGroupStandings, generateRoundOf16, generateQuarterfinals, generateSemifinals, generateFinals, getWinners, GAME_CALENDAR } from './src/utils/tournamentEngine';
-import { simulateFullMatch } from './src/utils/gameEngine';
+import { simulateSubstrateMatch, Pcg32, integrateMetabolism, evaluateKiPlayerCCQ, SubstratePlayerState } from './src/utils/substrateEngine';
+import { verifyStateLedger, appendLedgerEvent, xorNumber, generateActionToken } from './src/utils/cryptoLedger';
 
-// Simulating the training routine code from App.tsx
-const runTrainingRoutine = (teams: any[], focus: string) => {
-  let affectedCount = 0;
-  const updatedTeams = teams.map(t => {
-    const updatedPlayers = t.players.map((p: any) => {
-      const skills = p.skills ? { ...p.skills } : { shooting: 50, passing: 50, defending: 50, physical: 50, goalkeeping: 50 };
-      let overall = p.overall;
-      let fitness = p.fitness;
-
-      if (Math.random() < 0.4 && p.injuryWeeks === 0) {
-        affectedCount++;
-        const boost = 1;
-        
-        if (focus === 'torschuss' && p.position === 'ANG') {
-          skills.shooting = Math.min(99, skills.shooting + boost);
-          overall = Math.min(99, Math.round((skills.shooting + skills.passing + skills.physical) / 3));
-        } else if (focus === 'abwehr' && p.position === 'ABW') {
-          skills.defending = Math.min(99, skills.defending + boost);
-          overall = Math.min(99, Math.round((skills.defending + skills.passing + skills.physical) / 3));
-        } else if (focus === 'passspiel' && p.position === 'MF') {
-          skills.passing = Math.min(99, skills.passing + boost);
-          overall = Math.min(99, Math.round((skills.defending + skills.passing + skills.shooting + skills.physical) / 4));
-        } else if (focus === 'kondition') {
-          fitness = Math.min(100, fitness + 8);
-        }
-      }
-
-      return {
-        ...p,
-        skills,
-        overall,
-        fitness
-      };
-    });
-
-    return {
-      ...t,
-      players: updatedPlayers
-    };
-  });
-
-  return { updatedTeams };
-};
-
-const runFullTournamentTest = () => {
-  console.log("Starting full 17-day tournament simulation test...");
-  
-  const initialTeams = generateInitialTeams();
-  const userTeamId = 'GER';
-  let teams = initialTeams.map(t => ({
-    ...t,
-    isUser: t.id === userTeamId
-  }));
-  
-  let matches = generateGroupMatches(teams);
-  let stage = 'group_stage';
-  
-  for (let currentDayIndex = 0; currentDayIndex < GAME_CALENDAR.length - 1; currentDayIndex++) {
-    const currentCalendarDay = GAME_CALENDAR[currentDayIndex];
-    console.log(`\n--- Day ${currentDayIndex}: ${currentCalendarDay.label} (${currentCalendarDay.date}) ---`);
-    
-    // Simulate User Match if any (simulate it as a full match since we are auto-testing)
-    const userTeam = teams.find(t => t.id === userTeamId)!;
-    const userMatches = matches.filter(m => m.homeTeamId === userTeam.id || m.awayTeamId === userTeam.id);
-    const nextUserMatch = userMatches.find(m => m.dayIndex === currentDayIndex && !m.played);
-    
-    if (nextUserMatch) {
-      console.log(`User team ${userTeam.name} has a match against ${nextUserMatch.homeTeamId === userTeamId ? nextUserMatch.awayTeamId : nextUserMatch.homeTeamId}`);
-      const home = teams.find(t => t.id === nextUserMatch.homeTeamId)!;
-      const away = teams.find(t => t.id === nextUserMatch.awayTeamId)!;
-      const result = simulateFullMatch(home, away, nextUserMatch.stage, nextUserMatch.date, nextUserMatch.dayIndex);
-      
-      const idx = matches.findIndex(m => m.id === nextUserMatch.id);
-      matches[idx] = {
-        ...nextUserMatch,
-        homeScore: result.homeScore,
-        awayScore: result.awayScore,
-        played: true,
-        events: result.events
-      };
-      console.log(`Match played: ${home.name} ${result.homeScore}:${result.awayScore} ${away.name}`);
-    }
-
-    // Now call advanceDay logic for the current day index
-    const nextDayIndex = currentDayIndex + 1;
-    const nextDay = GAME_CALENDAR[nextDayIndex];
-    
-    // 1. Training logic
-    if (currentCalendarDay.type === 'training') {
-      const trainingResult = runTrainingRoutine(teams, 'kondition');
-      teams = trainingResult.updatedTeams;
-      console.log("Training simulated.");
-    }
-    
-    // 2. Simulate AI matches (and user matches if not played yet, e.g. if user skipped)
-    const todayMatches = matches.filter(m => m.dayIndex === currentDayIndex && !m.played);
-    console.log(`Simulating ${todayMatches.length} remaining matches for today...`);
-    
-    for (const match of todayMatches) {
-      const home = teams.find(t => t.id === match.homeTeamId);
-      const away = teams.find(t => t.id === match.awayTeamId);
-      
-      if (!home || !away) {
-        console.error(`Teams not found: ${match.homeTeamId} or ${match.awayTeamId}`);
-        continue;
-      }
-      
-      const result = simulateFullMatch(home, away, match.stage, match.date, match.dayIndex);
-      const idx = matches.findIndex(m => m.id === match.id);
-      matches[idx] = {
-        ...match,
-        homeScore: result.homeScore,
-        awayScore: result.awayScore,
-        played: true,
-        events: result.events
-      };
-    }
-    
-    // 3. Decrement injuries
-    teams = teams.map(t => ({
-      ...t,
-      players: t.players.map(p => ({
-        ...p,
-        injuryWeeks: p.injuryWeeks > 0 ? p.injuryWeeks - 1 : 0,
-        fitness: currentCalendarDay.type === 'training' ? Math.min(100, p.fitness + 12) : Math.min(100, p.fitness + 5)
-      }))
-    }));
-    
-    // 4. Bracket generation
-    if (nextDayIndex === 9 && stage === 'group_stage') {
-      console.log("Generating Round of 16...");
-      const r16Matches = generateRoundOf16(matches, teams);
-      matches = [...matches, ...r16Matches];
-      stage = 'round_of_16';
-    }
-    
-    if (nextDayIndex === 11) {
-      console.log("Generating Quarterfinals...");
-      const r16Played = matches.filter(m => m.stage === 'Achtelfinale');
-      const vfMatches = generateQuarterfinals(r16Played);
-      matches = [...matches, ...vfMatches];
-      stage = 'quarterfinals';
-    }
-    
-    if (nextDayIndex === 13) {
-      console.log("Generating Semifinals...");
-      const vfPlayed = matches.filter(m => m.stage === 'Viertelfinale');
-      const hfMatches = generateSemifinals(vfPlayed);
-      matches = [...matches, ...hfMatches];
-      stage = 'semifinals';
-    }
-    
-    if (nextDayIndex === 15) {
-      console.log("Generating Finals...");
-      const hfPlayed = matches.filter(m => m.stage === 'Halbfinale');
-      const finalMatches = generateFinals(hfPlayed);
-      matches = [...matches, ...finalMatches];
-      stage = 'final';
-    }
-    
-    if (nextDayIndex >= 16) {
-      const finalsPlayed = matches.filter(m => m.stage === 'Finale' && m.played);
-      if (finalsPlayed.length > 0) {
-        stage = 'finished';
-        const winnerId = getWinners(finalsPlayed)[0];
-        const winner = teams.find(t => t.id === winnerId);
-        console.log(`Tournament Winner: ${winner?.name}!`);
-      }
-    }
+function assert(condition: boolean, message: string) {
+  if (!condition) {
+    throw new Error(`Assertion failed: ${message}`);
   }
-  
-  console.log("\nFull 17-day simulation test completed successfully with no crashes!");
+}
+
+console.log("=== RUNNING SUBSTRAT ENGINE UNIT TESTS ===");
+
+// Test 1: PCG32 & Match Determinism
+console.log("Testing PCG32 & Match Determinism...");
+const initialTeams = generateInitialTeams();
+const teamHome = initialTeams.find(t => t.id === 'GER')!;
+const teamAway = initialTeams.find(t => t.id === 'FRA')!;
+
+const match1 = simulateSubstrateMatch(teamHome, teamAway, 'Finale', '2026-07-19', 15);
+const match2 = simulateSubstrateMatch(teamHome, teamAway, 'Finale', '2026-07-19', 15);
+
+assert(match1.homeScore === match2.homeScore, "Deterministic home scores do not match");
+assert(match1.awayScore === match2.awayScore, "Deterministic away scores do not match");
+assert(match1.events.length === match2.events.length, "Event counts do not match");
+for (let i = 0; i < match1.events.length; i++) {
+  assert(match1.events[i].description === match2.events[i].description, `Event ${i} descriptions do not match`);
+}
+console.log("✓ PCG32 & Match Determinism Passed!");
+
+// Test 2: Biomechanical Metabolism (ATP / Glykogen)
+console.log("Testing Biomechanical Metabolism Integration...");
+const player: SubstratePlayerState = {
+  id: "p1",
+  name: "Test Player",
+  position: "ANG",
+  teamId: "GER",
+  x: 50,
+  y: 34,
+  atp: 100.0,
+  glycogen: 100.0,
+  aerobic: 80.0,
+  speedCap: 1.0,
+  overall: 80,
+  shooting: 80,
+  passing: 80,
+  defending: 80,
+  goalkeeping: 50
 };
 
-runFullTournamentTest();
+// Sprinting: ATP and Glykogen must drop
+const sprintStep = integrateMetabolism(player, true, 5.0); // 5s tick
+assert(sprintStep.atp < 100.0, "ATP did not deplete during sprinting");
+assert(sprintStep.glycogen < 100.0, "Glycogen did not deplete during sprinting");
+
+// Capped speed when ATP drops below 15 during sprint
+const lowAtpPlayer = { ...player, atp: 12.0 };
+const sprintDepletedStep = integrateMetabolism(lowAtpPlayer, true, 1.0); // 1s tick, drops to 4.5
+assert(sprintDepletedStep.atp < 15.0, "ATP should be below 15");
+assert(sprintDepletedStep.speedCap === 0.35, "Player speed should be capped when ATP is depleted (<15)");
+
+// Recovering: ATP must recover
+const recoveryPlayer = { ...player, atp: 10.0, glycogen: 50.0 };
+const recoveryStep = integrateMetabolism(recoveryPlayer, false, 5.0);
+assert(recoveryStep.atp > 10.0, "ATP did not recover during rest");
+console.log("✓ Biomechanical Metabolism Passed!");
+
+// Test 3: Cryptographic Merkle State Ledger Chaining
+console.log("Testing Cryptographic Append-Only State Ledger...");
+let ledger: any[] = [];
+let hash1Obj = appendLedgerEvent(ledger, 'init', { userTeamId: 'GER' });
+ledger = hash1Obj.ledger;
+
+let hash2Obj = appendLedgerEvent(ledger, 'day_advance', { dayIndex: 1 });
+ledger = hash2Obj.ledger;
+
+// Verify valid ledger
+assert(verifyStateLedger(ledger) === true, "Valid ledger returned false during verification");
+
+// Mutate ledger (simulate hacking / DevTools bypass)
+const mutatedLedger = JSON.parse(JSON.stringify(ledger));
+mutatedLedger[0].payload = JSON.stringify({ userTeamId: 'FRA' }); // change team from GER to FRA
+
+// Verify invalid ledger
+assert(verifyStateLedger(mutatedLedger) === false, "Mutated ledger returned true during verification! Security breach!");
+console.log("✓ Cryptographic State Ledger Passed!");
+
+// Test 4: Memory Obfuscation
+console.log("Testing Memory Obfuscation...");
+const originalBudget = 60000000;
+const obfuscated = xorNumber(originalBudget);
+assert(obfuscated !== originalBudget, "Obfuscation did not change budget value");
+assert(xorNumber(obfuscated) === originalBudget, "Symmetric XOR did not decode budget correctly");
+assert((obfuscated ^ 0x5E3A9C7B) === originalBudget, "XOR mask is not 0x5E3A9C7B");
+console.log("✓ Memory Obfuscation Passed!");
+
+// Test 5: KI-Kognitionsmatrix (CCQ-Matrix)
+console.log("Testing KI strategic decisions (CCQ-Matrix)...");
+const testPlayerObj = teamAway.players[0];
+const kiRating = evaluateKiPlayerCCQ(teamHome, testPlayerObj);
+assert(typeof kiRating === 'number' && !isNaN(kiRating), "CCQ evaluation did not return a valid number");
+console.log("✓ CCQ-Matrix Passed!");
+
+// Test 6: Differential Execution Validation (Action Tokens)
+console.log("Testing Action Tokens...");
+const token = generateActionToken("advance_day", 5);
+const valid = token === generateActionToken("advance_day", 5);
+const invalid = token === generateActionToken("advance_day", 6);
+assert(valid === true, "Valid action token failed validation");
+assert(invalid === false, "Invalid action token passed validation");
+console.log("✓ Action Tokens Passed!");
+
+console.log("\nALL 6 SUBSTRATE SUB-SYSTEM TESTS PASSED SUCCESSFULLY!");
